@@ -1,0 +1,101 @@
+// Intro logic
+const intro=document.getElementById('introScreen');
+const app=document.getElementById('appContainer');
+const video=document.getElementById('rammanIntro');
+const skipBtn=document.getElementById('skipIntro');
+
+skipBtn.onclick=loadApp;
+video.onended=loadApp;
+
+function loadApp(){
+  intro.style.display='none';
+  app.style.display='block';
+  const audio=new Audio('assets/whoosh.mp3');
+  audio.play();
+}
+
+// Tabs
+function openTab(tabName, btn){
+  document.getElementById('routePlanner').style.display=tabName==='routePlanner'?'block':'none';
+  document.getElementById('newBusinessTracker').style.display=tabName==='newBusiness'?'block':'none';
+  document.querySelectorAll('.tablink').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// Route Planner
+let addressCount=0,addressInputs=[];
+function addAddressInput(value=''){
+  addressCount++;
+  const container=document.getElementById('addresses');
+  const div=document.createElement('div'); div.className='addressBox';
+  const input=document.createElement('input'); input.placeholder='Enter address '+addressCount; input.value=value;
+
+  const typeSelect=document.createElement('select');
+  ['Prospecting','Renewal','Adjustment','New Business'].forEach(opt=>{
+    let o=document.createElement('option'); o.value=o.text=o; typeSelect.add(o);
+  });
+  const typeLabel=document.createElement('span'); typeLabel.className='visitType visitProspecting'; typeLabel.textContent='Prospecting';
+  typeSelect.onchange=()=>{ 
+    typeLabel.textContent=typeSelect.value;
+    typeLabel.className='visitType visit'+typeSelect.value.replace(/\s/g,'');
+  }
+
+  const removeBtn=document.createElement('button'); removeBtn.textContent='✕'; removeBtn.onclick=()=>{container.removeChild(div); addressInputs=addressInputs.filter(el=>el.input!==input);}
+  div.appendChild(input); div.appendChild(typeSelect); div.appendChild(typeLabel); div.appendChild(removeBtn); container.appendChild(div);
+  addressInputs.push({input,type:typeSelect,label:typeLabel});
+}
+addAddressInput(); addAddressInput(); addAddressInput();
+
+// Route Optimization
+async function optimizeRoute(){
+  const addresses=addressInputs.map(a=>a.input.value.trim()).filter(v=>v!=='');
+  if(addresses.length<2){alert('Enter at least 2 addresses!'); return;}
+  document.getElementById('result').innerHTML='RAM-MAN is calculating… 🦸‍♂️';
+  try{
+    const key='YOUR_GOOGLE_API_KEY'; // Replace
+    const origins=addresses.join('|');
+    const destinations=origins;
+    const response=await fetch(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origins)}&destinations=${encodeURIComponent(destinations)}&key=${key}&traffic_model=best_guess&departure_time=now`);
+    const data=await response.json();
+    if(data.status!=='OK'){throw new Error('Distance Matrix API error');}
+
+    // Simple nearest-neighbor heuristic
+    let currentIdx=0, routeOrder=[0], unused=addresses.map((_,i)=>i).filter(i=>i!==0);
+    while(unused.length){
+      const last=routeOrder[routeOrder.length-1];
+      let nearest,minDist=Infinity;
+      unused.forEach(i=>{const travel=data.rows[last].elements[i].duration.value; if(travel<minDist){minDist=travel; nearest=i;}});
+      routeOrder.push(nearest); unused=unused.filter(i=>i!==nearest);
+    }
+
+    const ordered=routeOrder.map(i=>addresses[i]);
+    const base='https://www.google.com/maps/dir/?api=1';
+    const origin=encodeURIComponent(ordered[0]);
+    const waypoints=ordered.slice(1,-1).map(a=>encodeURIComponent(a)).join('|');
+    const destination=encodeURIComponent(ordered[ordered.length-1]);
+    const link=`${base}&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
+    document.getElementById('result').innerHTML=`<strong>Route Ready! 🚗</strong><br>Total stops: ${ordered.length}<br><a class="mapsLink" href="${link}" target="_blank">Open in Google Maps</a>`;
+  }catch(err){document.getElementById('result').textContent='Error calculating route.'; console.error(err);}
+}
+
+// New Business Tracker
+let trackerCount=0,trackerData=[];
+function addTrackerRow(){
+  trackerCount++;
+  const container=document.getElementById('trackerRows');
+  const div=document.createElement('div'); div.className='trackerRow';
+  const member=document.createElement('input'); member.placeholder='Member No';
+  const type=document.createElement('select'); ['Business Protection','Complete Renewal','Other'].forEach(opt=>{let o=document.createElement('option'); o.value=o.text=opt; type.add(o)});
+  const amount=document.createElement('input'); amount.placeholder='Sale Amount'; amount.type='number';
+  const removeBtn=document.createElement('button'); removeBtn.textContent='✕'; removeBtn.onclick=()=>{container.removeChild(div); trackerData=trackerData.filter(row=>row!==[member,type,amount]);}
+  div.appendChild(member); div.appendChild(type); div.appendChild(amount); div.appendChild(removeBtn); container.appendChild(div); trackerData.push([member,type,amount]);
+}
+
+function exportTracker(){
+  let csv='Member No,Protection Type,Sale Amount\n';
+  trackerData.forEach(row=>{csv+=`${row[0].value},${row[1].value},${row[2].value}\n`;});
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='new_business_tracker.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
